@@ -1,5 +1,10 @@
 package patterns
 
+// ParseGroups takes a pattern string and returns two slices of runes.
+// The first slice contains the positive characters in the pattern and the second slice contains the negative characters.
+// Positive characters are those that are inside the [] character block and are not preceded by a ^ character.
+// Negative characters are those that are inside the [] character block and are preceded by a ^ character.
+// Characters outside the [] character block are ignored.
 func ParseGroups(pattern string) ([]rune, []rune) {
 	var positive []rune
 	var negative []rune
