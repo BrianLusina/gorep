@@ -48,8 +48,17 @@ func matchLine(line []rune, pattern string) (bool, error) {
 		return false, fmt.Errorf("empty pattern")
 	}
 
-	if strings.HasPrefix(pattern, "[") && strings.HasSuffix(pattern, "]") {
-		pattern = pattern[1 : len(pattern)-1]
+	if strings.HasPrefix(pattern, "[") && strings.HasSuffix(pattern, "]") && pattern[1] == '^' {
+		if pattern[1] == '^' {
+			for _, b := range line {
+				if !slices.Contains(line, b) {
+					return true, nil
+				}
+			}
+			return false, nil
+		} else {
+			pattern = pattern[1 : len(pattern)-1]
+		}
 	}
 
 	ok := false
