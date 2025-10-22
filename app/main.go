@@ -48,16 +48,16 @@ func matchLine(line []rune, pattern string) (bool, error) {
 		return false, fmt.Errorf("empty pattern")
 	}
 
+	if strings.HasPrefix(pattern, "[") && strings.HasSuffix(pattern, "]") {
+		pattern = pattern[1 : len(pattern)-1]
+	}
+
 	ok := false
 	for _, r := range pattern {
 		if slices.Contains(line, r) {
 			ok = true
 			break
 		}
-	}
-
-	if strings.HasPrefix(pattern, "[") && strings.HasSuffix(pattern, "]") {
-		pattern = pattern[1 : len(pattern)-1]
 	}
 
 	if patterns.ContainsDigitClass(pattern) {
@@ -68,19 +68,19 @@ func matchLine(line []rune, pattern string) (bool, error) {
 		ok = patterns.ContainsAlphanumeric(line)
 	}
 
-	positive, negative := patterns.ParseGroups(pattern)
-	for _, r := range positive {
-		if slices.Contains(line, r) {
-			ok = true
-			break
-		}
-	}
-	for _, r := range negative {
-		if !slices.Contains(line, r) {
-			ok = true
-			break
-		}
-	}
+	// positive, negative := patterns.ParseGroups(pattern)
+	// for _, r := range positive {
+	// 	if slices.Contains(line, r) {
+	// 		ok = true
+	// 		break
+	// 	}
+	// }
+	// for _, r := range negative {
+	// 	if !slices.Contains(line, r) {
+	// 		ok = true
+	// 		break
+	// 	}
+	// }
 
 	return ok, nil
 }
