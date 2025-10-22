@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"slices"
+	"strings"
 
 	"github.com/codecrafters-io/grep-starter-go/pkg/patterns"
 )
@@ -53,6 +54,10 @@ func matchLine(line []rune, pattern string) (bool, error) {
 			ok = true
 			break
 		}
+	}
+
+	if strings.HasPrefix(pattern, "[") && strings.HasSuffix(pattern, "]") {
+		pattern = pattern[1 : len(pattern)-1]
 	}
 
 	if patterns.ContainsDigitClass(pattern) {
