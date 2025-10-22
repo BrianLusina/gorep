@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"unicode/utf8"
+
+	"github.com/codecrafters-io/grep-starter-go/pkg/patterns"
 )
 
 // Ensures gofmt doesn't remove the "bytes" import above (feel free to remove this!)
@@ -26,7 +27,8 @@ func main() {
 		os.Exit(2)
 	}
 
-	ok, err := matchLine(line, pattern)
+	runes := bytes.Runes(line)
+	ok, err := matchLine(runes, pattern)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(2)
@@ -39,22 +41,29 @@ func main() {
 	// default exit code is 0 which means success
 }
 
-func matchLine(line []byte, pattern string) (bool, error) {
-	if pattern == "\\d" {
-		return bytes.ContainsAny(line, "0123456789"), nil
+func matchLine(line []rune, pattern string) (bool, error) {
+	if len(pattern) == 0 {
+		return false, fmt.Errorf("empty pattern")
+	}
+	// if utf8.RuneCountInString(pattern) != 1 {
+	// 	return false, fmt.Errorf("unsupported pattern: %q", pattern)
+	// }
+
+	ok := false
+
+	if patterns.ContainsDigitClass(pattern) {
+		ok = patterns.ContainsDigit(line)
 	}
 
-	if utf8.RuneCountInString(pattern) != 1 {
-		return false, fmt.Errorf("unsupported pattern: %q", pattern)
+	if patterns.ContainsAlphanumericClass(pattern) {
+		ok = patterns.ContainsAlphanumeric(line)
 	}
-
-	var ok bool
 
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	// fmt.Fprintln(os.Stderr, "Logs from your program will appear here!")
 
 	// Uncomment this to pass the first stage
-	ok = bytes.ContainsAny(line, pattern)
+	// ok = bytes.ContainsAny(line, pattern)
 
 	return ok, nil
 }
