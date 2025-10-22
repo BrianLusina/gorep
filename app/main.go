@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 
 	"github.com/codecrafters-io/grep-starter-go/pkg/patterns"
 )
@@ -45,11 +46,14 @@ func matchLine(line []rune, pattern string) (bool, error) {
 	if len(pattern) == 0 {
 		return false, fmt.Errorf("empty pattern")
 	}
-	// if utf8.RuneCountInString(pattern) != 1 {
-	// 	return false, fmt.Errorf("unsupported pattern: %q", pattern)
-	// }
 
 	ok := false
+	for _, r := range pattern {
+		if slices.Contains(line, r) {
+			ok = true
+			break
+		}
+	}
 
 	if patterns.ContainsDigitClass(pattern) {
 		ok = patterns.ContainsDigit(line)
@@ -59,11 +63,19 @@ func matchLine(line []rune, pattern string) (bool, error) {
 		ok = patterns.ContainsAlphanumeric(line)
 	}
 
-	// You can use print statements as follows for debugging, they'll be visible when running tests.
-	// fmt.Fprintln(os.Stderr, "Logs from your program will appear here!")
-
-	// Uncomment this to pass the first stage
-	// ok = bytes.ContainsAny(line, pattern)
+	positive, negative := patterns.ParseGroups(pattern)
+	for _, r := range positive {
+		if slices.Contains(line, r) {
+			ok = true
+			break
+		}
+	}
+	for _, r := range negative {
+		if !slices.Contains(line, r) {
+			ok = true
+			break
+		}
+	}
 
 	return ok, nil
 }
