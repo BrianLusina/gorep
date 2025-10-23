@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"slices"
-	"strings"
 
 	"github.com/codecrafters-io/grep-starter-go/pkg/patterns"
 )
@@ -48,56 +46,10 @@ func matchLine(line []rune, pattern string) (bool, error) {
 		return false, fmt.Errorf("empty pattern")
 	}
 
-	ok := false
-	for _, r := range pattern {
-		if slices.Contains(line, r) {
-			ok = true
-			break
-		}
+	p, err := patterns.ParsePattern(pattern)
+	if err != nil {
+		return false, fmt.Errorf("invalid pattern: %v", err)
 	}
 
-	if patterns.ContainsDigitClass(pattern) {
-		ok = patterns.ContainsDigit(line)
-	}
-
-	if patterns.ContainsAlphanumericClass(pattern) {
-		ok = patterns.ContainsAlphanumeric(line)
-	}
-
-	if strings.HasPrefix(pattern, "[") && strings.HasSuffix(pattern, "]") {
-		if pattern[1] == '^' {
-			pattern = pattern[2 : len(pattern)-1]
-			for _, r := range pattern {
-				if !slices.Contains(line, r) {
-					return true, nil
-				}
-			}
-			return false, nil
-		} else {
-			pattern = pattern[1 : len(pattern)-1]
-			for _, r := range pattern {
-				if slices.Contains(line, r) {
-					return true, nil
-				}
-			}
-
-			return false, nil
-		}
-	}
-
-	// positive, negative := patterns.ParseGroups(pattern)
-	// for _, r := range positive {
-	// 	if slices.Contains(line, r) {
-	// 		ok = true
-	// 		break
-	// 	}
-	// }
-	// for _, r := range negative {
-	// 	if !slices.Contains(line, r) {
-	// 		ok = true
-	// 		break
-	// 	}
-	// }
-
-	return ok, nil
+	return p.Match(line), nil
 }
