@@ -176,14 +176,27 @@ func (p *Pattern) matchHere(input []rune, pos int) bool {
 			if !oneOrMore.Match(input[inputPos]) {
 				return false
 			}
-			inputPos++
 
-			// Continue matching as many times as possible
+			inputPos++
+			// Match additional occurrences
 			for inputPos < len(input) && oneOrMore.Match(input[inputPos]) {
 				inputPos++
 			}
-			patternPos++
-			continue
+
+			// After matching one or more, try to match the rest of the pattern
+			// at any position from here onwards
+			remainingPattern := &Pattern{
+				elements:  p.elements[patternPos+1:],
+				endAnchor: p.endAnchor,
+			}
+
+			// Try each possible position after our matches
+			for tryPos := inputPos; tryPos >= pos+1; tryPos-- {
+				if remainingPattern.matchHere(input, tryPos) {
+					return true
+				}
+			}
+			return false
 		}
 
 		// Normal (non-quantified) element
