@@ -7,7 +7,8 @@ import (
 
 // Pattern represents a sequence of pattern elements to match against
 type Pattern struct {
-	elements []PatternElement
+	elements    []PatternElement
+	startAnchor bool // true if pattern starts with ^
 }
 
 // PatternElement represents a single element in a pattern that can match runes
@@ -55,6 +56,13 @@ func (m CharacterSetMatcher) Match(r rune) bool {
 func ParsePattern(pattern string) (*Pattern, error) {
 	var elements []PatternElement
 	runes := []rune(pattern)
+	startAnchor := false
+
+	// Check for start anchor
+	if len(runes) > 0 && runes[0] == '^' {
+		startAnchor = true
+		runes = runes[1:] // Remove the anchor from the pattern
+	}
 
 	for i := 0; i < len(runes); i++ {
 		r := runes[i]
@@ -91,12 +99,17 @@ func ParsePattern(pattern string) (*Pattern, error) {
 		}
 	}
 
-	return &Pattern{elements: elements}, nil
+	return &Pattern{elements: elements, startAnchor: startAnchor}, nil
 }
 
 // Match checks if a sequence of runes matches the pattern at any position
 func (p *Pattern) Match(input []rune) bool {
-	// Try matching at each position in the input
+	if p.startAnchor {
+		// If pattern starts with ^, only try matching at the beginning
+		return p.matchHere(input, 0)
+	}
+
+	// Otherwise, try matching at each position in the input
 	for startPos := 0; startPos <= len(input); startPos++ {
 		if p.matchHere(input, startPos) {
 			return true
