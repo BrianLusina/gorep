@@ -9,6 +9,7 @@ import (
 type Pattern struct {
 	elements    []PatternElement
 	startAnchor bool // true if pattern starts with ^
+	endAnchor   bool // true if pattern ends with $
 }
 
 // PatternElement represents a single element in a pattern that can match runes
@@ -57,11 +58,18 @@ func ParsePattern(pattern string) (*Pattern, error) {
 	var elements []PatternElement
 	runes := []rune(pattern)
 	startAnchor := false
+	endAnchor := false
 
 	// Check for start anchor
 	if len(runes) > 0 && runes[0] == '^' {
 		startAnchor = true
 		runes = runes[1:] // Remove the anchor from the pattern
+	}
+
+	// Check for end anchor
+	if len(runes) > 0 && runes[len(runes)-1] == '$' {
+		endAnchor = true
+		runes = runes[:len(runes)-1] // Remove the end anchor
 	}
 
 	for i := 0; i < len(runes); i++ {
@@ -99,7 +107,7 @@ func ParsePattern(pattern string) (*Pattern, error) {
 		}
 	}
 
-	return &Pattern{elements: elements, startAnchor: startAnchor}, nil
+	return &Pattern{elements: elements, startAnchor: startAnchor, endAnchor: endAnchor}, nil
 }
 
 // Match checks if a sequence of runes matches the pattern at any position
@@ -136,6 +144,11 @@ func (p *Pattern) matchHere(input []rune, pos int) bool {
 
 		patternPos++
 		inputPos++
+	}
+
+	// If we have an end anchor, ensure we've reached the end of the input
+	if p.endAnchor {
+		return inputPos == len(input)
 	}
 
 	return true
