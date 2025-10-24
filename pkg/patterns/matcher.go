@@ -62,6 +62,15 @@ func (m OneOrMoreMatcher) Match(r rune) bool {
 	return m.matcher.Match(r)
 }
 
+// ZeroOrOneMatcher matches the underlying pattern zero or one time
+type ZeroOrOneMatcher struct {
+	matcher PatternElement
+}
+
+func (m ZeroOrOneMatcher) Match(r rune) bool {
+	return m.matcher.Match(r)
+}
+
 // ParsePattern converts a pattern string into a sequence of pattern elements
 func ParsePattern(pattern string) (*Pattern, error) {
 	var elements []PatternElement
@@ -99,10 +108,18 @@ func ParsePattern(pattern string) (*Pattern, error) {
 			default:
 				element = LiteralMatcher{char: runes[i]}
 			}
-			// Check for quantifier
-			if i+1 < len(runes) && runes[i+1] == '+' {
-				i++
-				elements = append(elements, OneOrMoreMatcher{matcher: element})
+			// Check for quantifiers
+			if i+1 < len(runes) {
+				switch runes[i+1] {
+				case '+':
+					i++
+					elements = append(elements, OneOrMoreMatcher{matcher: element})
+				case '?':
+					i++
+					elements = append(elements, ZeroOrOneMatcher{matcher: element})
+				default:
+					elements = append(elements, element)
+				}
 			} else {
 				elements = append(elements, element)
 			}
@@ -119,19 +136,35 @@ func ParsePattern(pattern string) (*Pattern, error) {
 				i++
 			}
 			element := CharacterSetMatcher{chars: chars, negated: negated}
-			// Check for quantifier after the character set
-			if i+1 < len(runes) && runes[i+1] == '+' {
-				i++
-				elements = append(elements, OneOrMoreMatcher{matcher: element})
+			// Check for quantifiers after the character set
+			if i+1 < len(runes) {
+				switch runes[i+1] {
+				case '+':
+					i++
+					elements = append(elements, OneOrMoreMatcher{matcher: element})
+				case '?':
+					i++
+					elements = append(elements, ZeroOrOneMatcher{matcher: element})
+				default:
+					elements = append(elements, element)
+				}
 			} else {
 				elements = append(elements, element)
 			}
 		default:
 			element := LiteralMatcher{char: r}
-			// Check for quantifier
-			if i+1 < len(runes) && runes[i+1] == '+' {
-				i++
-				elements = append(elements, OneOrMoreMatcher{matcher: element})
+			// Check for quantifiers
+			if i+1 < len(runes) {
+				switch runes[i+1] {
+				case '+':
+					i++
+					elements = append(elements, OneOrMoreMatcher{matcher: element})
+				case '?':
+					i++
+					elements = append(elements, ZeroOrOneMatcher{matcher: element})
+				default:
+					elements = append(elements, element)
+				}
 			} else {
 				elements = append(elements, element)
 			}
@@ -164,22 +197,22 @@ func (p *Pattern) matchHere(input []rune, pos int) bool {
 
 	// Try to match each pattern element in sequence
 	for patternPos < len(p.elements) {
-		if inputPos >= len(input) {
-			return false
-		}
-
 		element := p.elements[patternPos]
 
-		// Handle one or more quantifier
-		if oneOrMore, ok := element.(OneOrMoreMatcher); ok {
-			// Must match at least once
-			if !oneOrMore.Match(input[inputPos]) {
+		// Handle quantifiers
+		switch q := element.(type) {
+		case OneOrMoreMatcher:
+			// Must match at least once, so we need input
+			if inputPos >= len(input) {
+				return false
+			}
+			if !q.Match(input[inputPos]) {
 				return false
 			}
 
 			inputPos++
 			// Match additional occurrences
-			for inputPos < len(input) && oneOrMore.Match(input[inputPos]) {
+			for inputPos < len(input) && q.Match(input[inputPos]) {
 				inputPos++
 			}
 
@@ -197,14 +230,38 @@ func (p *Pattern) matchHere(input []rune, pos int) bool {
 				}
 			}
 			return false
-		}
 
-		// Normal (non-quantified) element
-		if !element.Match(input[inputPos]) {
+		case ZeroOrOneMatcher:
+			// Try skipping the optional element first (zero case)
+			remainingPattern := &Pattern{
+				elements:  p.elements[patternPos+1:],
+				endAnchor: p.endAnchor,
+			}
+			if remainingPattern.matchHere(input, inputPos) {
+				return true
+			}
+
+			// If we still have input, try matching the element once
+			if inputPos < len(input) && q.Match(input[inputPos]) {
+				if remainingPattern.matchHere(input, inputPos+1) {
+					return true
+				}
+			}
+
 			return false
+
+		default:
+			// Normal (non-quantified) element needs input to match
+			if inputPos >= len(input) {
+				return false
+			}
+			if !element.Match(input[inputPos]) {
+				return false
+			}
+			patternPos++
+			inputPos++
+			continue
 		}
-		patternPos++
-		inputPos++
 	}
 
 	// If we have an end anchor, ensure we've reached the end of the input
