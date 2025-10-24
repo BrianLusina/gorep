@@ -1,6 +1,7 @@
 package patterns
 
 import (
+	"fmt"
 	"slices"
 	"unicode"
 )
@@ -78,6 +79,56 @@ func (m WildcardMatcher) Match(r rune) bool {
 	return r != '\n'
 }
 
+// AlternationMatcher matches one of several alternative patterns
+type AlternationMatcher struct {
+	alternatives []*Pattern
+}
+
+func (m AlternationMatcher) Match(r rune) bool {
+	// This won't actually be called since we handle alternation specially in matchHere
+	return false
+}
+
+// parseAlternatives parses a string containing alternatives separated by |
+func parseAlternatives(pattern string) ([]*Pattern, error) {
+	var alternatives []*Pattern
+	var depth int
+
+	// Split the pattern into alternatives, but only at top level
+	runes := []rune(pattern)
+	start := 0
+
+	for i := 0; i < len(runes); i++ {
+		switch runes[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case '|':
+			if depth == 0 {
+				// Found a top-level alternation
+				alt, err := ParsePattern(string(runes[start:i]))
+				if err != nil {
+					return nil, err
+				}
+				alternatives = append(alternatives, alt)
+				start = i + 1
+			}
+		}
+	}
+
+	// Add the final alternative
+	if start < len(runes) {
+		alt, err := ParsePattern(string(runes[start:]))
+		if err != nil {
+			return nil, err
+		}
+		alternatives = append(alternatives, alt)
+	}
+
+	return alternatives, nil
+}
+
 // ParsePattern converts a pattern string into a sequence of pattern elements
 func ParsePattern(pattern string) (*Pattern, error) {
 	var elements []PatternElement
@@ -101,6 +152,49 @@ func ParsePattern(pattern string) (*Pattern, error) {
 		r := runes[i]
 
 		switch r {
+		case '(':
+			// Find matching closing parenthesis
+			start := i + 1
+			depth := 1
+			for i++; i < len(runes) && depth > 0; i++ {
+				if runes[i] == '(' {
+					depth++
+				} else if runes[i] == ')' {
+					depth--
+				}
+			}
+			i-- // Step back to the closing parenthesis
+
+			if depth > 0 {
+				// Mismatched parentheses
+				return nil, fmt.Errorf("missing closing parenthesis")
+			}
+
+			// Parse the alternatives within the parentheses
+			innerPattern := string(runes[start:i])
+			alternatives, err := parseAlternatives(innerPattern)
+			if err != nil {
+				return nil, err
+			}
+
+			element := AlternationMatcher{alternatives: alternatives}
+
+			// Check for quantifiers after the parentheses
+			if i+1 < len(runes) {
+				switch runes[i+1] {
+				case '+':
+					i++
+					elements = append(elements, OneOrMoreMatcher{matcher: element})
+				case '?':
+					i++
+					elements = append(elements, ZeroOrOneMatcher{matcher: element})
+				default:
+					elements = append(elements, element)
+				}
+			} else {
+				elements = append(elements, element)
+			}
+
 		case '.':
 			element := WildcardMatcher{}
 			// Check for quantifiers
@@ -225,6 +319,25 @@ func (p *Pattern) matchHere(input []rune, pos int) bool {
 
 		// Handle quantifiers
 		switch q := element.(type) {
+		case AlternationMatcher:
+			// Try each alternative from the current position
+			remainingPattern := &Pattern{
+				elements:  p.elements[patternPos+1:],
+				endAnchor: p.endAnchor,
+			}
+
+			for _, alt := range q.alternatives {
+				// Create a pattern that combines this alternative with the remaining elements
+				altPattern := &Pattern{
+					elements:  append(alt.elements, remainingPattern.elements...),
+					endAnchor: p.endAnchor,
+				}
+				if altPattern.matchHere(input, inputPos) {
+					return true
+				}
+			}
+			return false
+
 		case OneOrMoreMatcher:
 			// Must match at least once, so we need input
 			if inputPos >= len(input) {
