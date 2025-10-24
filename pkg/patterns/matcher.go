@@ -71,6 +71,13 @@ func (m ZeroOrOneMatcher) Match(r rune) bool {
 	return m.matcher.Match(r)
 }
 
+// WildcardMatcher matches any single character except newline
+type WildcardMatcher struct{}
+
+func (m WildcardMatcher) Match(r rune) bool {
+	return r != '\n'
+}
+
 // ParsePattern converts a pattern string into a sequence of pattern elements
 func ParsePattern(pattern string) (*Pattern, error) {
 	var elements []PatternElement
@@ -94,6 +101,23 @@ func ParsePattern(pattern string) (*Pattern, error) {
 		r := runes[i]
 
 		switch r {
+		case '.':
+			element := WildcardMatcher{}
+			// Check for quantifiers
+			if i+1 < len(runes) {
+				switch runes[i+1] {
+				case '+':
+					i++
+					elements = append(elements, OneOrMoreMatcher{matcher: element})
+				case '?':
+					i++
+					elements = append(elements, ZeroOrOneMatcher{matcher: element})
+				default:
+					elements = append(elements, element)
+				}
+			} else {
+				elements = append(elements, element)
+			}
 		case '\\':
 			if i+1 >= len(runes) {
 				continue
