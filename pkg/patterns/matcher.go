@@ -11,6 +11,7 @@ type Pattern struct {
 	elements    []PatternElement
 	startAnchor bool // true if pattern starts with ^
 	endAnchor   bool // true if pattern ends with $
+	groupCount  int  // number of capturing groups in the pattern
 }
 
 // PatternElement represents a single element in a pattern that can match runes
@@ -89,8 +90,29 @@ func (m AlternationMatcher) Match(r rune) bool {
 	return false
 }
 
+// GroupMatcher represents a capturing group; index is 1-based
+type GroupMatcher struct {
+	index   int
+	pattern *Pattern
+}
+
+func (m GroupMatcher) Match(r rune) bool {
+	// Not used directly; matching uses the group's pattern
+	return false
+}
+
+// BackReferenceMatcher matches the previously captured group text
+type BackReferenceMatcher struct {
+	index int
+}
+
+func (m BackReferenceMatcher) Match(r rune) bool {
+	// Not used directly; matching compares substrings
+	return false
+}
+
 // parseAlternatives parses a string containing alternatives separated by |
-func parseAlternatives(pattern string) ([]*Pattern, error) {
+func parseAlternatives(pattern string, groupCounter *int) ([]*Pattern, error) {
 	var alternatives []*Pattern
 	var depth int
 
@@ -107,7 +129,7 @@ func parseAlternatives(pattern string) ([]*Pattern, error) {
 		case '|':
 			if depth == 0 {
 				// Found a top-level alternation
-				alt, err := ParsePattern(string(runes[start:i]))
+				alt, err := parsePatternInternal(string(runes[start:i]), groupCounter)
 				if err != nil {
 					return nil, err
 				}
@@ -119,7 +141,7 @@ func parseAlternatives(pattern string) ([]*Pattern, error) {
 
 	// Add the final alternative
 	if start < len(runes) {
-		alt, err := ParsePattern(string(runes[start:]))
+		alt, err := parsePatternInternal(string(runes[start:]), groupCounter)
 		if err != nil {
 			return nil, err
 		}
@@ -130,7 +152,8 @@ func parseAlternatives(pattern string) ([]*Pattern, error) {
 }
 
 // ParsePattern converts a pattern string into a sequence of pattern elements
-func ParsePattern(pattern string) (*Pattern, error) {
+// parsePatternInternal parses a pattern and updates groupCounter for capturing groups
+func parsePatternInternal(pattern string, groupCounter *int) (*Pattern, error) {
 	var elements []PatternElement
 	runes := []rune(pattern)
 	startAnchor := false
@@ -153,6 +176,10 @@ func ParsePattern(pattern string) (*Pattern, error) {
 
 		switch r {
 		case '(':
+			// This is a capturing group: assign group index
+			(*groupCounter)++
+			groupIndex := *groupCounter
+
 			// Find matching closing parenthesis
 			start := i + 1
 			depth := 1
@@ -170,14 +197,26 @@ func ParsePattern(pattern string) (*Pattern, error) {
 				return nil, fmt.Errorf("missing closing parenthesis")
 			}
 
-			// Parse the alternatives within the parentheses
-			innerPattern := string(runes[start:i])
-			alternatives, err := parseAlternatives(innerPattern)
+			// Parse the content within the parentheses (may include alternation)
+			innerPatternStr := string(runes[start:i])
+			var inner *Pattern
+			// Parse alternatives inside group
+			alts, err := parseAlternatives(innerPatternStr, groupCounter)
 			if err != nil {
 				return nil, err
 			}
+			if len(alts) == 1 {
+				inner = alts[0]
+			} else {
+				// Build a pattern whose single element is an AlternationMatcher
+				alternation := AlternationMatcher{alternatives: alts}
+				inner = &Pattern{elements: []PatternElement{alternation}}
+			}
+			if inner != nil {
+				inner.groupCount = *groupCounter
+			}
 
-			element := AlternationMatcher{alternatives: alternatives}
+			element := GroupMatcher{index: groupIndex, pattern: inner}
 
 			// Check for quantifiers after the parentheses
 			if i+1 < len(runes) {
@@ -217,6 +256,15 @@ func ParsePattern(pattern string) (*Pattern, error) {
 				continue
 			}
 			i++
+			// Backreference if digit follows
+			if runes[i] >= '1' && runes[i] <= '9' {
+				idx := int(runes[i] - '0')
+				element := BackReferenceMatcher{index: idx}
+				// quantifiers are not meaningful on backreferences here; just append
+				elements = append(elements, element)
+				continue
+			}
+
 			var element PatternElement
 			switch runes[i] {
 			case 'd':
@@ -289,122 +337,305 @@ func ParsePattern(pattern string) (*Pattern, error) {
 		}
 	}
 
-	return &Pattern{elements: elements, startAnchor: startAnchor, endAnchor: endAnchor}, nil
+	return &Pattern{elements: elements, startAnchor: startAnchor, endAnchor: endAnchor, groupCount: *groupCounter}, nil
+}
+
+// ParsePattern is the public entry that initializes group counting
+func ParsePattern(pattern string) (*Pattern, error) {
+	counter := 0
+	p, err := parsePatternInternal(pattern, &counter)
+	if err != nil {
+		return nil, err
+	}
+	p.groupCount = counter
+	return p, nil
+}
+
+// matchElementOnce attempts to match a single occurrence of element at pos.
+// It returns (matched, newPos, updatedCaptures).
+func matchElementOnce(element PatternElement, input []rune, pos int, captures []string, p *Pattern) (bool, int, []string) {
+	switch e := element.(type) {
+	case GroupMatcher:
+		// Match the group's inner pattern starting at pos
+		cp := make([]string, len(captures))
+		copy(cp, captures)
+		var matchEnd int
+		// Try to match the inner pattern
+		if ok, newPos := e.pattern.matchHereWithCaptures(input, pos, cp); ok {
+			matchEnd = newPos
+			// store the captured substring - use the actual matched range
+			cp[e.index-1] = string(input[pos:matchEnd])
+			return true, matchEnd, cp
+		}
+		return false, 0, nil
+	case BackReferenceMatcher:
+		if e.index-1 < 0 || e.index-1 >= len(captures) {
+			return false, 0, nil
+		}
+		capStr := captures[e.index-1]
+		if capStr == "" {
+			// No capture yet for this group, can't match
+			return false, 0, nil
+		}
+		capRunes := []rune(capStr)
+		if pos+len(capRunes) > len(input) {
+			// Not enough input remaining to match the captured text
+			return false, 0, nil
+		}
+		// Compare the captured text with input at current position
+		matched := true
+		for i := 0; i < len(capRunes); i++ {
+			if input[pos+i] != capRunes[i] {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			// Return the captures unchanged since backreferences don't create new captures
+			return true, pos + len(capRunes), captures
+		}
+		return false, 0, nil
+	default:
+		// Simple rune-based element
+		if pos >= len(input) {
+			return false, 0, nil
+		}
+		if !element.Match(input[pos]) {
+			return false, 0, nil
+		}
+		return true, pos + 1, captures
+	}
 }
 
 // Match checks if a sequence of runes matches the pattern at any position
 func (p *Pattern) Match(input []rune) bool {
 	if p.startAnchor {
-		// If pattern starts with ^, only try matching at the beginning
-		return p.matchHere(input, 0)
+		captures := make([]string, p.groupCount)
+		ok, _, _ := p.matchHereWithState(input, 0, captures)
+		return ok
 	}
 
-	// Otherwise, try matching at each position in the input
+	// Try matching at each position
 	for startPos := 0; startPos <= len(input); startPos++ {
-		if p.matchHere(input, startPos) {
+		captures := make([]string, p.groupCount)
+		if ok, _, _ := p.matchHereWithState(input, startPos, captures); ok {
 			return true
 		}
 	}
 	return false
 }
 
+// matchHereWithState attempts to match at current position and manages captured groups
+func (p *Pattern) matchHereWithState(input []rune, pos int, captures []string) (bool, int, []string) {
+	if len(p.elements) == 0 {
+		// Empty pattern matches if no end anchor or if we're at end of input
+		if !p.endAnchor || pos == len(input) {
+			return true, pos, captures
+		}
+		return false, pos, captures
+	}
+
+	element := p.elements[0]
+	remaining := &Pattern{
+		elements:   p.elements[1:],
+		endAnchor:  p.endAnchor,
+		groupCount: p.groupCount,
+	}
+
+	switch e := element.(type) {
+	case GroupMatcher:
+		if ok, newPos, _ := e.pattern.matchHereWithState(input, pos, captures); ok {
+			// Store the group's match
+			captures[e.index-1] = string(input[pos:newPos])
+			// Try the rest of the pattern
+			if ok2, finalPos, finalCaptures := remaining.matchHereWithState(input, newPos, captures); ok2 {
+				return true, finalPos, finalCaptures
+			}
+		}
+		return false, pos, captures
+
+	case BackReferenceMatcher:
+		if e.index < 1 || e.index > len(captures) {
+			return false, pos, captures
+		}
+		captured := captures[e.index-1]
+		if captured == "" {
+			return false, pos, captures
+		}
+		if pos+len(captured) > len(input) {
+			return false, pos, captures
+		}
+		// Must match exactly what was captured before
+		if string(input[pos:pos+len(captured)]) != captured {
+			return false, pos, captures
+		}
+		// Try remaining pattern after the backreference
+		return remaining.matchHereWithState(input, pos+len(captured), captures)
+
+	case OneOrMoreMatcher:
+		// Must match at least once
+		if ok, newPos, newCaptures := matchElementOnce(e.matcher, input, pos, captures, p); !ok {
+			return false, pos, captures
+		} else {
+			pos = newPos
+			captures = newCaptures
+		}
+		// Match additional occurrences greedily
+		for {
+			if ok, newPos, newCaptures := matchElementOnce(e.matcher, input, pos, captures, p); ok {
+				pos = newPos
+				captures = newCaptures
+			} else {
+				break
+			}
+		}
+		// Try remaining pattern after all matches
+		return remaining.matchHereWithState(input, pos, captures)
+
+	case ZeroOrOneMatcher:
+		// Try skipping first
+		if ok, newPos, newCaptures := remaining.matchHereWithState(input, pos, captures); ok {
+			return true, newPos, newCaptures
+		}
+		// Try matching once
+		if ok, newPos, newCaptures := matchElementOnce(e.matcher, input, pos, captures, p); ok {
+			return remaining.matchHereWithState(input, newPos, newCaptures)
+		}
+		return false, pos, captures
+
+	case AlternationMatcher:
+		for _, alt := range e.alternatives {
+			if ok, newPos, newCaptures := alt.matchHereWithState(input, pos, captures); ok {
+				return remaining.matchHereWithState(input, newPos, newCaptures)
+			}
+		}
+		return false, pos, captures
+
+	default:
+		if ok, newPos, newCaptures := matchElementOnce(element, input, pos, captures, p); ok {
+			return remaining.matchHereWithState(input, newPos, newCaptures)
+		}
+		return false, pos, captures
+	}
+}
+
 // matchHere attempts to match the pattern starting at the given position
-func (p *Pattern) matchHere(input []rune, pos int) bool {
+// matchHereWithCaptures attempts to match the pattern starting at pos using captures.
+// It returns (matched, newPos). captures is mutated on successful paths.
+func (p *Pattern) matchHereWithCaptures(input []rune, pos int, captures []string) (bool, int) {
 	patternPos := 0
 	inputPos := pos
 
-	// Try to match each pattern element in sequence
 	for patternPos < len(p.elements) {
 		element := p.elements[patternPos]
 
-		// Handle quantifiers
 		switch q := element.(type) {
 		case AlternationMatcher:
-			// Try each alternative from the current position
 			remainingPattern := &Pattern{
-				elements:  p.elements[patternPos+1:],
-				endAnchor: p.endAnchor,
+				elements:   p.elements[patternPos+1:],
+				endAnchor:  p.endAnchor,
+				groupCount: p.groupCount,
 			}
 
 			for _, alt := range q.alternatives {
-				// Create a pattern that combines this alternative with the remaining elements
-				altPattern := &Pattern{
-					elements:  append(alt.elements, remainingPattern.elements...),
-					endAnchor: p.endAnchor,
-				}
-				if altPattern.matchHere(input, inputPos) {
-					return true
+				// Try this alternative
+				cp := make([]string, len(captures))
+				copy(cp, captures)
+
+				// First match the alternative
+				if ok, altPos := alt.matchHereWithCaptures(input, inputPos, cp); ok {
+					// Then try to match the remaining pattern
+					if ok2, finalPos := remainingPattern.matchHereWithCaptures(input, altPos, cp); ok2 {
+						copy(captures, cp)
+						return true, finalPos
+					}
 				}
 			}
-			return false
+			return false, 0
 
 		case OneOrMoreMatcher:
-			// Must match at least once, so we need input
-			if inputPos >= len(input) {
-				return false
+			// Need at least one match
+			cp := make([]string, len(captures))
+			copy(cp, captures)
+			ok, newPos, newCp := matchElementOnce(q.matcher, input, inputPos, cp, p)
+			if !ok {
+				return false, 0
 			}
-			if !q.Match(input[inputPos]) {
-				return false
-			}
+			inputPos = newPos
+			copy(cp, newCp)
 
-			inputPos++
-			// Match additional occurrences
-			for inputPos < len(input) && q.Match(input[inputPos]) {
-				inputPos++
-			}
-
-			// After matching one or more, try to match the rest of the pattern
-			// at any position from here onwards
+			// Try matching the remaining pattern after each repetition
 			remainingPattern := &Pattern{
-				elements:  p.elements[patternPos+1:],
-				endAnchor: p.endAnchor,
+				elements:   p.elements[patternPos+1:],
+				endAnchor:  p.endAnchor,
+				groupCount: p.groupCount,
 			}
 
-			// Try each possible position after our matches
-			for tryPos := inputPos; tryPos >= pos+1; tryPos-- {
-				if remainingPattern.matchHere(input, tryPos) {
-					return true
+			// Keep trying to consume more occurrences while attempting the remainder
+			for {
+				// Try the remaining pattern at current position
+				tryCp := make([]string, len(cp))
+				copy(tryCp, cp)
+				if ok, newPosRem := remainingPattern.matchHereWithCaptures(input, inputPos, tryCp); ok {
+					copy(captures, tryCp)
+					return true, newPosRem
 				}
+
+				// Try one more occurrence
+				ok2, nextPos, nextCp := matchElementOnce(q.matcher, input, inputPos, cp, p)
+				if !ok2 {
+					break
+				}
+				inputPos = nextPos
+				copy(cp, nextCp)
 			}
-			return false
+			return false, 0
 
 		case ZeroOrOneMatcher:
-			// Try skipping the optional element first (zero case)
 			remainingPattern := &Pattern{
-				elements:  p.elements[patternPos+1:],
-				endAnchor: p.endAnchor,
-			}
-			if remainingPattern.matchHere(input, inputPos) {
-				return true
+				elements:   p.elements[patternPos+1:],
+				endAnchor:  p.endAnchor,
+				groupCount: p.groupCount,
 			}
 
-			// If we still have input, try matching the element once
-			if inputPos < len(input) && q.Match(input[inputPos]) {
-				if remainingPattern.matchHere(input, inputPos+1) {
-					return true
+			// First try zero occurrences (skip the element)
+			cpZero := make([]string, len(captures))
+			copy(cpZero, captures)
+			if ok, newPos := remainingPattern.matchHereWithCaptures(input, inputPos, cpZero); ok {
+				copy(captures, cpZero)
+				return true, newPos
+			}
+
+			// Then try matching one occurrence
+			cp := make([]string, len(captures))
+			copy(cp, captures)
+			ok, newPos, newCp := matchElementOnce(q.matcher, input, inputPos, cp, p)
+			if ok {
+				// Try to match the remainder after this occurrence
+				if ok2, newPos2 := remainingPattern.matchHereWithCaptures(input, newPos, newCp); ok2 {
+					copy(captures, newCp)
+					return true, newPos2
 				}
 			}
-
-			return false
+			return false, 0
 
 		default:
-			// Normal (non-quantified) element needs input to match
-			if inputPos >= len(input) {
-				return false
+			// Normal (non-quantified) element: attempt to match once
+			ok, newPos, newCp := matchElementOnce(element, input, inputPos, captures, p)
+			if !ok {
+				return false, 0
 			}
-			if !element.Match(input[inputPos]) {
-				return false
-			}
+			// update captures and advance
+			copy(captures, newCp)
+			inputPos = newPos
 			patternPos++
-			inputPos++
 			continue
 		}
 	}
 
 	// If we have an end anchor, ensure we've reached the end of the input
 	if p.endAnchor {
-		return inputPos == len(input)
+		return inputPos == len(input), inputPos
 	}
-
-	return true
+	return true, inputPos
 }
