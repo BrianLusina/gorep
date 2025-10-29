@@ -481,18 +481,26 @@ func (p *Pattern) matchHereWithState(input []rune, pos int, captures []string) (
 			captures = newCaptures
 		}
 
-		// Try matching remaining pattern at each position after matching at least one
-		for currentPos := pos; currentPos <= len(input); currentPos++ {
-			// Try remaining pattern at current position
-			if ok, finalPos, finalCaptures := remaining.matchHereWithState(input, currentPos, captures); ok {
-				return true, finalPos, finalCaptures
-			}
+		// Match as many as possible first
+		currentCaptures := make([]string, len(captures))
+		copy(currentCaptures, captures)
+		currentPos := pos
 
-			// Try to match one more at current position
-			if currentPos < len(input) && e.matcher.Match(input[currentPos]) {
-				pos = currentPos + 1
+		for currentPos < len(input) {
+			if ok, newPos, newCp := matchElementOnce(e.matcher, input, currentPos, currentCaptures, p); ok {
+				currentPos = newPos
+				copy(currentCaptures, newCp)
 			} else {
 				break
+			}
+		}
+
+		// Try matching the rest at each position, from longest match to shortest
+		for tryPos := currentPos; tryPos >= pos; tryPos-- {
+			tryCaptures := make([]string, len(captures))
+			copy(tryCaptures, captures)
+			if ok, finalPos, finalCaptures := remaining.matchHereWithState(input, tryPos, tryCaptures); ok {
+				return true, finalPos, finalCaptures
 			}
 		}
 		return false, pos, captures
