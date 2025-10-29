@@ -359,12 +359,13 @@ func matchElementOnce(element PatternElement, input []rune, pos int, captures []
 		// Match the group's inner pattern starting at pos
 		cp := make([]string, len(captures))
 		copy(cp, captures)
-		var matchEnd int
-		// Try to match the inner pattern
+
+		// Try to match the inner pattern and maintain nested captures
 		if ok, newPos := e.pattern.matchHereWithCaptures(input, pos, cp); ok {
-			matchEnd = newPos
-			// store the captured substring - use the actual matched range
+			matchEnd := newPos
+			// Store this group's capture
 			cp[e.index-1] = string(input[pos:matchEnd])
+			// Return all captures including nested ones
 			return true, matchEnd, cp
 		}
 		return false, 0, nil
@@ -444,11 +445,14 @@ func (p *Pattern) matchHereWithState(input []rune, pos int, captures []string) (
 
 	switch e := element.(type) {
 	case GroupMatcher:
-		if ok, newPos, _ := e.pattern.matchHereWithState(input, pos, captures); ok {
-			// Store the group's match
-			captures[e.index-1] = string(input[pos:newPos])
-			// Try the rest of the pattern
-			if ok2, finalPos, finalCaptures := remaining.matchHereWithState(input, newPos, captures); ok2 {
+		cp := make([]string, len(captures))
+		copy(cp, captures)
+
+		if ok, newPos, groupCaptures := e.pattern.matchHereWithState(input, pos, cp); ok {
+			// Store this group's match
+			groupCaptures[e.index-1] = string(input[pos:newPos])
+			// Try the rest of the pattern with all captures (including nested ones)
+			if ok2, finalPos, finalCaptures := remaining.matchHereWithState(input, newPos, groupCaptures); ok2 {
 				return true, finalPos, finalCaptures
 			}
 		}
