@@ -1,38 +1,45 @@
+# gorep
+
 [![progress-banner](https://backend.codecrafters.io/progress/grep/4318fdb4-1f39-4457-a350-a88d03157495)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
 
-This is a starting point for Go solutions to the
-["Build Your Own grep" Challenge](https://app.codecrafters.io/courses/grep/overview).
+This is a [Go](https://go.dev/) implementation of the [grep](https://www.gnu.org/software/grep/) command line tool that utilizes regular expressions for searching text.
 
-[Regular expressions](https://en.wikipedia.org/wiki/Regular_expression)
-(Regexes, for short) are patterns used to match character combinations in
-strings. [`grep`](https://en.wikipedia.org/wiki/Grep) is a CLI tool for
-searching using Regexes.
+## Pre-requisites
 
-In this challenge you'll build your own implementation of `grep`. Along the way
-we'll learn about Regex syntax, how parsers/lexers work, and how regular
-expressions are evaluated.
+### [Go](https://go.dev/)
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+Ensure you have Go installed locally. You can download it from the [official Go website](https://go.dev/dl/) the minimum required version is `1.24`.
 
-# Passing the first stage
+## Getting started
 
-The entry point for your `grep` implementation is in `app/main.go`. Study and
-uncomment the relevant code, and push your changes to pass the first stage:
+This program uses very few external dependencies. To install them, run:
 
-```sh
-git commit -am "pass 1st stage" # any msg
-git push origin master
+```bash
+go mod download
 ```
 
-Time to move on to the next stage!
+Now run the tests to ensure everything is set up correctly:
 
-# Stage 2 & beyond
+```bash
+go test ./...
+```
 
-Note: This section is for stages 2 and beyond.
+## Usage
 
-1. Ensure you have `go (1.24)` installed locally
-1. Run `./your_program.sh` to run your program, which is implemented in
-   `app/main.go`.
-1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
+The program is designed to be run from the command line. It takes a regular expression and one or more file paths as arguments.
+
+```bash
+./your_program.sh -E <pattern> <file1> <file2> ...
+```
+
+- `-E`: The regular expression to search for.
+- `<file1> <file2> ...`: The file(s) to search in.
+
+## Running the program
+
+1. Run `./your_program.sh` to run the program, which is implemented in `app/main.go`.
+
+## Resources
+
+- [Regular expressions](https://en.wikipedia.org/wiki/Regular_expression) (Regexes, for short) are patterns used to match character combinations in strings.
+- [`grep`](https://en.wikipedia.org/wiki/Grep) is a CLI tool for searching using Regexes.
