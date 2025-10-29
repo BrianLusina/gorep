@@ -1,0 +1,16 @@
+name: Lint
+
+on:
+  - push
+  - pull_request
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  lint-go:
+    name: Go Lint
+    uses: SanctumLabs/ci-workflows/.github/workflows/go-lint.yml@main
+    with:
+      working-directory: .
